@@ -1,5 +1,9 @@
 package edu.hebrew.db.external;
 
+import java.io.*;
+import java.util.ArrayList;
+import java.util.List;
+
 public class ExternalMemoryImpl implements IExternalMemory {
 
     @Override
@@ -14,6 +18,20 @@ public class ExternalMemoryImpl implements IExternalMemory {
         //max bytes in memory for a line
         int M = 1000; //block size
         int Y = 20000; //size of block
+
+
+        try (BufferedReader reader = new BufferedReader(new FileReader(in))) {
+
+
+
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+
+        List<String> blocks = new ArrayList<String>();
+
 
     }
 
