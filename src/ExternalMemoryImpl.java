@@ -1,5 +1,3 @@
-package edu.hebrew.db.external;
-
 import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
