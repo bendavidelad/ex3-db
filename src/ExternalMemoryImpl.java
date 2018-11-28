@@ -6,13 +6,16 @@ public class ExternalMemoryImpl implements IExternalMemory {
 
     @Override
     public void sort(String in, String out, int colNum, String tmpPath) {
-        //default values
-        int numColsPerLine = 4;
-        int numCharsPerCol = 20;
-        int colDelimiterLength = 1;
+        String text = "";
+        try {
+            BufferedReader Buff = new BufferedReader(new FileReader(in));
+            text = Buff.readLine();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
         int sizeOfChar = 2;
-        int X = sizeOfChar * ( (  numColsPerLine       * numCharsPerCol)     +
-                ( (numColsPerLine - 1)  * colDelimiterLength) );
+        int X = sizeOfChar * text.length();
         //max bytes in memory for a line
         int M = 1000; //block size
         int Y = 20000; //size of block
