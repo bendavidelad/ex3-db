@@ -15,7 +15,6 @@ example.py
 *.dmg
 *.gz
 *.iso
-*.jar
 *.rar
 *.tar
 *.xml
