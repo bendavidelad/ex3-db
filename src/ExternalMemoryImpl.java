@@ -1,8 +1,6 @@
 import java.io.*;
 import java.util.*;
 
-//class ColumnComparator extends
-
 public class ExternalMemoryImpl implements IExternalMemory {
 
     //parameters of input file syntax
@@ -15,13 +13,29 @@ public class ExternalMemoryImpl implements IExternalMemory {
 
         try {
 
-            ArrayList<File> sortedSequenceFiles = getArrayOfSortedSequences(in, colNum, tmpPath);
-            int M = sortedSequenceFiles.size();
+            /*
 
-//            mergeSortedSequences(sortedSequenceFiles, M, colNum, tmpPath);
+                TODO: if we decide to make Y a function of the number of colPerRow, we can use this code to find it
 
-            writeSequenceFilesToOutput(sortedSequenceFiles, out);
-//            sequenceFilesCleanup(sortedSequenceFiles);
+                BufferedReader bReader = new BufferedReader(new FileReader(in));
+                BufferedReader bReader = new BufferedReader
+                bReader.mark(MAX_LINE_LEN);
+                final int colsPerRow = bReader.readLine().split(" ").length;
+                bReader.reset();
+
+            */
+
+            final int Y = 2000; //number of rows in each initial sorted sequence (stage 1)
+            final int M = 100; //number of sequences to merge in each merge operaetion (stage 2)
+
+            //TODO: last 3 parameters are a ugly hack and shouldn't be here, but who really cares.
+            ArrayList<File> sortedSequenceFiles = getArrayOfSortedSequences(in, Y, colNum, tmpPath, false, 1, "");
+
+            while (sortedSequenceFiles.size() > 1) {
+                sortedSequenceFiles = mergeSortedSequences(sortedSequenceFiles, M, colNum, tmpPath);
+            }
+
+            writeResultToOutput(sortedSequenceFiles, out);
 
         } catch (Exception e) {
             e.printStackTrace();
@@ -35,34 +49,31 @@ public class ExternalMemoryImpl implements IExternalMemory {
 
         int colBeginIndex = (CHARS_PER_COL + COL_DELIMITER_LEN) * (colNum - 1) - 1;
 
-        return Comparator.comparing((String s) -> s.substring(colBeginIndex));
+        if (colNum == 1) return Comparator.comparing((String s) -> s);
+        else return Comparator.comparing((String s) -> s.substring(colBeginIndex));
 
     }
 
-    private ArrayList<File> getArrayOfSortedSequences(String in, int colNum, String tmpPath) throws IOException {
+    //splits input file into Files, each with Y rows, such that each file is sorted.
+    //if select == true, then also removes rows where column colNumSelect DOES NOT contain subStrSelect
+    private ArrayList<File> getArrayOfSortedSequences(String in, int Y, int colNum, String tmpPath, boolean select, int colNumSelect, String substrSelect) throws IOException {
 
         BufferedReader bReader = new BufferedReader(new FileReader(in));
 
-        /*
-        find number of columns per line to decide number of sorted arrays
-        TODO: change linesPerFile to some function of colsPerLine for performance?
-        bReader.mark(MAX_LINE_LEN);
-        final int colsPerLine = bReader.readLine().split(" ").length;
-        bReader.reset(); //reset back to start of file
-        */
-
-        int linesPerFile = 4;
         ArrayList<File> sequenceFiles = new ArrayList<>();
 
         File workDir = new File(tmpPath);
-        //noinspection ResultOfMethodCallIgnored
         workDir.mkdirs(); //create the temp directory if it doesn't exist.
 
         while (bReader.ready()) {
 
             ArrayList<String> nextSequence = new ArrayList<>();
-            for (int i = 0; bReader.ready() && i < linesPerFile; i++) {
-                nextSequence.add(bReader.readLine());
+            String line;
+            for (int i = 0; i < Y && ((line = bReader.readLine()) != null); i++) {
+                if (!select || isSubstringOfColumn(line, colNumSelect, substrSelect)) {
+                    nextSequence.add(line);
+                }
+
             }
 
             nextSequence.sort(compareByCol(colNum));
@@ -72,8 +83,8 @@ public class ExternalMemoryImpl implements IExternalMemory {
             sequenceFiles.add(sequenceFile);
 
             BufferedWriter bWriter = new BufferedWriter(new FileWriter(sequenceFile));
-            for (String line : nextSequence) {
-                bWriter.write(line + "\n");
+            for (String row : nextSequence) {
+                bWriter.write(row + "\n");
             }
 
             bWriter.close(); //otherwise file will not be written into, and won't allow to be deleted
@@ -86,64 +97,97 @@ public class ExternalMemoryImpl implements IExternalMemory {
 
     }
 
-    /* does a M-merge of a list of sorted sequences.
-       returns a new, shorter list of sorted sequences
+    /* does a M-merge of a list of sorted sequences,
+       where each sequence has Y lines.
+
+       returns a new list of merged sequences that each have M*Y lines.
      */
     private ArrayList<File> mergeSortedSequences(ArrayList<File> sequencesToMerge, int M, int colNum, String tmpPath) throws IOException {
 
 
-
-
-        ArrayList<File> merged = new ArrayList<>();
+        ArrayList<File> newMergedSequences = new ArrayList<>();
 
         File workDir = new File(tmpPath);
         workDir.mkdirs();
 
-        File nextMergedSequence = File.createTempFile("sortedSequence", "", workDir);
-        nextMergedSequence.deleteOnExit();
-        merged.add(nextMergedSequence);
+        ArrayList<String> mWay = new ArrayList<>();
+        ArrayList<BufferedReader> readerQueue = new ArrayList<>();
+        ArrayList<String> writeBuffer = new ArrayList<>();
+        BufferedWriter mergedWriter = null;
 
-        ArrayList<String> mWay = new ArrayList<>(M);
-        ArrayList<BufferedReader> mergeQueue = new ArrayList<>();
-        for (int i = 0; i < M && !sequencesToMerge.isEmpty(); i++) {
-            File sequence = sequencesToMerge.get(sequencesToMerge.size() - 1);
-            sequencesToMerge.remove(sequencesToMerge.size() - 1);
+        while (!sequencesToMerge.isEmpty())
+        {
+            //create file for next merge
+            File mergeFile = File.createTempFile("sortedSequence", "", workDir);
+            mergeFile.deleteOnExit();
+            newMergedSequences.add(mergeFile);
+            mergedWriter = new BufferedWriter(new FileWriter(mergeFile));
 
-            mergeQueue.add(new BufferedReader(new FileReader(sequence)));
+            //add the next M files that will be merged
+            for (int i = 0; i < M && !sequencesToMerge.isEmpty(); i++) {
 
+                File sequence = sequencesToMerge.get(sequencesToMerge.size() - 1);
+                sequencesToMerge.remove(sequencesToMerge.size() - 1);
 
-        }
+                BufferedReader bReader = new BufferedReader(new FileReader(sequence));
+                readerQueue.add(bReader);
+                String nextLine = bReader.readLine();
+                mWay.add(nextLine);
 
-        while (!mergeQueue.isEmpty()) {
-
-            for (int j = 0; j < mergeQueue.size(); j++) {
-//                mergeQueue.get(j).mark(MAX_LINE_LEN);
-                mWay.at(j) = mergeQueue.at(j);
-//                mergeQueue.get(j).reset();
             }
 
-            String minString = Collections.min(mWay, compareByCol(colNum));
-            int minIndex = mWay.indexOf(minString);
+            while (!readerQueue.isEmpty()) {
+                //find minimum
+                String minString = Collections.min(mWay, compareByCol(colNum));
+                int minIndex = mWay.indexOf(minString);
+
+
+                //advance reader with minimum element. if reader is finished, get rid of it
+                String line;
+                if ((line = readerQueue.get(minIndex).readLine()) != null) {
+
+                    mWay.set(minIndex, line);
+
+                } else { //then the file end is reached
+
+                    readerQueue.get(minIndex).close();
+                    mWay.remove(minIndex);
+                    readerQueue.remove(minIndex);
+
+                }
+
+                //add minimum line to buffer
+                writeBuffer.add(minString);
+
+            }
+
+            //write buffer to file
+            for (String row : writeBuffer) {
+                mergedWriter.write(row + "\n");
+            }
+
+            writeBuffer.clear();
+            mergedWriter.close();
 
         }
 
-        return merged;
+        return newMergedSequences;
     }
 
-
-    private void writeSequenceFilesToOutput(ArrayList<File> sequenceFiles, String out) throws IOException {
+//assumes there is only one file left.
+    private void writeResultToOutput(ArrayList<File> sequenceFiles, String out) throws IOException {
 
         BufferedWriter bWriter = new BufferedWriter(new FileWriter(out));
         for (File seqFile : sequenceFiles) {
 
             BufferedReader bReader = new BufferedReader(new FileReader(seqFile));
 
-            //TODO: either find an easy way to remove \n after last line or use the older school test
-            while (bReader.ready()) {
-                bWriter.write(bReader.readLine() + "\n");
+            //workaround to avoid appending newline after last line
+            String line = bReader.readLine();
+            bWriter.write(line);
+            while ((line = bReader.readLine()) != null) {
+                bWriter.write("\n" + line);
             }
-
-//            bWriter.
 
 
             bReader.close();
@@ -153,27 +197,65 @@ public class ExternalMemoryImpl implements IExternalMemory {
         bWriter.close();
     }
 
-//    private void sequenceFilesCleanup(ArrayList<File> sequenceFiles) {
-//        for (File seqFile : sequenceFiles) {
-//            //noinspection ResultOfMethodCallIgnored
-//            seqFile.delete();
-//        }
-//    }
-
-
 
     @Override
     public void select(String in, String out, int colNumSelect,
                        String substrSelect, String tmpPath) {
-        // TODO: Implement
+        sort(in, out, colNumSelect, tmpPath);
+
+        try {
+
+            BufferedReader bReader = new BufferedReader(new FileReader(in));
+            BufferedWriter bWriter = new BufferedWriter(new FileWriter(out));
+
+            //TODO: avoid adding \n after last line
+            String line;
+            while ((line = bReader.readLine()) != null) {
+                if (isSubstringOfColumn(line, colNumSelect, substrSelect)) {
+                    bWriter.write(line + "\n");
+                }
+            }
+
+            bReader.close();
+            bWriter.close();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+    }
+
+    //takes a row with at least colNum columns, with a single whitespace as column delimiter
+    //returns true iff column colNum of row contains subStr.
+    private boolean isSubstringOfColumn(String row, int colNumSelect, String subStrSelect) {
+
+        String[] columns = row.split(" ");
+        String column = columns[colNumSelect - 1];
+
+        return column.contains(subStrSelect);
     }
 
     @Override
     public void sortAndSelectEfficiently(String in, String out, int colNumSort,
                                          String tmpPath, int colNumSelect, String substrSelect) {
 
+        final int Y = 2000; //number of rows in each initial sorted sequence (stage 1)
+        final int M = 100; //number of sequences to merge in each merge operaetion (stage 2)
 
+        try {
 
-    }
+            ArrayList<File> sortedSequenceFiles = getArrayOfSortedSequences(in, Y, colNumSort, tmpPath, true,colNumSelect, substrSelect);
+
+            while (sortedSequenceFiles.size() > 1) {
+                sortedSequenceFiles = mergeSortedSequences(sortedSequenceFiles, M, colNumSort, tmpPath);
+            }
+
+            writeResultToOutput(sortedSequenceFiles, out);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        }
 
 }
